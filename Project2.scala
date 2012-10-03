@@ -1,6 +1,9 @@
 import actors.Actor
 import scala.actors.Actor._
 import scala.util.Random
+import java.lang.Math
+import scala.Array._
+
 
 /**
  * Created with IntelliJ IDEA.
@@ -14,15 +17,15 @@ case object TransmitData
 
 object Project2 {
 
-  var num_nodes: Int = 0
+  var num_nodes = 0
   var topology, algorithm = ""
 
   def main(args: Array[String]) {
     collect_input
     start_process
-    }
+  }
 
-  def collect_input(){
+  def collect_input() {
     println("Enter the number of nodes :")
     num_nodes = readInt()
     println("Enter the topology :")
@@ -31,35 +34,64 @@ object Project2 {
     algorithm = readLine();
   }
 
-  def start_process(){
-    topology match{
+  def start_process() {
+    topology match {
+
       case "Full" => {
         var full_topology = new FullTopology(num_nodes)
         full_topology.initiate_nodes()
         full_topology.g_nodes(0) ! Rumour
+      }
+
+      case "Line" => {
+        var line_topology = new LineTopology(num_nodes)
+        line_topology.initiate_nodes()
+        line_topology.g_nodes(0) ! Rumour
+      }
+
+      case "2D" => {
+        var twod_topology = new TwoDTopology(num_nodes)
+        twod_topology.initiate_nodes()
+        twod_topology.g_nodes(0)(0) ! Rumour
+      }
+
+      case "2DImp" => {
+        var twod_topology = new TwoDImpTopology(num_nodes)
+        twod_topology.initiate_nodes()
+        twod_topology.g_nodes(0)(0) ! Rumour
       }
     }
   }
 }
 
 abstract class Topology(num_nodes: Int) {
-  var deactive_nodes:Array[Int] = Array()
+  var deactive_nodes: Array[Int] = Array()
 
-  def increment_status(){
-    println("Incrementing status and deactivating")
-    deactive_nodes:+=1
-
+  def increment_status(size:Int) {
+    deactive_nodes :+= 1
+    println("Incrementing status and deactivating : " + deactive_nodes)
+    if (deactive_nodes.size == size) {
+      println("All nodes have received 10 each !")
+      System.exit(0)
+    }
   }
+
   def get_random_neighbour(): Actor
+
+  def get_random_neighbour(index: Int): Actor
+
+  def get_neighbours(index: Tuple2[Int, Int]): Array[Actor]
+
+  def get_imperfect_neighbours(index: Tuple2[Int, Int]): Array[Actor]
 }
 
 class FullTopology(num_nodes: Int) extends Topology(num_nodes) {
-  var g_nodes:Array[GNodes] = Array()
+  var g_nodes: Array[GNodes] = Array()
   val rand = new Random()
 
-  def initiate_nodes(){
-    for( i <- 0 to num_nodes-1){
-      g_nodes:+= new GNodes(i, this, num_nodes)
+  def initiate_nodes() {
+    for (i <- 0 to num_nodes - 1) {
+      g_nodes :+= new GNodes(i, this, num_nodes)
       g_nodes(i).start()
     }
   }
@@ -67,50 +99,230 @@ class FullTopology(num_nodes: Int) extends Topology(num_nodes) {
   override def get_random_neighbour(): Actor = {
     g_nodes(rand.nextInt(g_nodes.size))
   }
+
+  override def get_random_neighbour(index: Int): Actor = {
+    g_nodes(rand.nextInt(g_nodes.size))
+  }
+
+  override def get_neighbours(index: Tuple2[Int, Int]):Array[Actor] = {
+    Array(g_nodes(0))
+  }
+
+  override def get_imperfect_neighbours(index: Tuple2[Int, Int]): Array[Actor] = {
+    Array(g_nodes(0))
+  }
 }
 
-class GNodes(index : Int,topology: Topology, gnode_size: Int) extends Actor {
+class LineTopology(num_nodes: Int) extends Topology(num_nodes) {
+  var g_nodes: Array[GNodes] = Array()
+
+  def initiate_nodes() {
+    for (i <- 0 to num_nodes - 1) {
+      g_nodes :+= new GNodes(i, this, num_nodes)
+      g_nodes(i).start()
+    }
+  }
+
+  override def get_random_neighbour(): Actor = {
+    g_nodes(0)
+  }
+
+  override def get_neighbours(index: Tuple2[Int, Int]):Array[Actor] = {
+    Array(g_nodes(0))
+  }
+
+  override def get_imperfect_neighbours(index: Tuple2[Int, Int]): Array[Actor] = {
+    Array(g_nodes(0))
+  }
+
+  override def get_random_neighbour(index: Int): Actor = {
+    index match {
+      case 0 => {
+        (new Random().nextInt(10) % 2) match{
+          case 0 => return g_nodes(1)
+          case 1 => return g_nodes(0)
+        }
+      }
+
+      case other:Int => {
+        if (other == g_nodes.size - 1)
+          (new Random().nextInt(10) % 2) match{
+            case 0 => return g_nodes(other)
+            case 1 => return g_nodes(other - 1)
+          }
+
+        (new Random().nextInt(10) % 3) match{
+          case 0 => return g_nodes(other)
+          case 1 => return g_nodes(other - 1)
+          case 2 => return g_nodes(other + 1)
+        }
+      }
+    }
+  }
+}
+
+class TwoDTopology(num_nodes: Int) extends Topology(num_nodes){
+  var use_val:Int = find_dimension(num_nodes)
+  var g_nodes = ofDim[TwoDGNodes](use_val,use_val)
+
+  def initiate_nodes() {
+    var index:Tuple2[Int,Int] = (0,0)
+    for (i <- 0 to use_val - 1) {
+      for (j<- 0 to use_val - 1){
+        index = (i,j)
+        g_nodes(i)(j) = new TwoDGNodes(index, this, (use_val*use_val))
+        g_nodes(i)(j).start()
+      }
+    }
+  }
+
+  def find_dimension(num_nodes:Int):Int = {
+
+    var node = (Math.ceil(Math.sqrt(num_nodes)))
+    println("Dimension is : "+ node)
+    return (node).toInt
+
+  }
+
+  override def get_neighbours(index: Tuple2[Int, Int]):Array[Actor] = {
+    var neighbours:Array[Actor] = Array()
+    var x = index._1
+    var y = index._2
+    for (i <- 0 to use_val - 1) {
+      for (j<- 0 to use_val - 1){
+        if (x == 0 || y == 0){
+          if (x!= use_val -1)
+            neighbours:+= g_nodes(x+1)(y)
+          if (y!=use_val -1)
+            neighbours:+= g_nodes(x)(y+1)
+          if (y!=0)
+            neighbours:+= g_nodes(x)(y-1)
+          if (x!=0)
+            neighbours:+= g_nodes(x-1)(y)
+        }
+
+        else if (x == use_val - 1){
+          neighbours:+= g_nodes(x-1)(y)
+          if (y!= use_val -1)
+            neighbours:+= g_nodes(x)(y+1)
+          if (y!=0)
+            neighbours:+= g_nodes(x)(y-1)
+        }
+
+        else if (y == use_val - 1){
+          neighbours:+= g_nodes(x)(y-1)
+          if (x!=use_val - 1)
+            neighbours:+= g_nodes(x+1)(y)
+          if (x!=0)
+            neighbours:+= g_nodes(x-1)(y)
+        }
+
+        else{
+          neighbours:+= g_nodes(x)(y-1)
+          neighbours:+= g_nodes(x)(y+1)
+          neighbours:+= g_nodes(x-1)(y)
+          neighbours:+= g_nodes(x+1)(y)
+        }
+
+      }
+    }
+
+    return neighbours
+  }
+
+  override def get_imperfect_neighbours(index: Tuple2[Int, Int]): Array[Actor] = {
+    var neighbours = get_neighbours(index)
+    return neighbours
+  }
+
+
+  override def get_random_neighbour(): Actor = {
+    g_nodes(0)(0)
+  }
+
+  override def get_random_neighbour(index: Int): Actor = {
+    g_nodes(0)(0)
+  }
+
+
+}
+
+class TwoDImpTopology(num_nodes: Int) extends TwoDTopology(num_nodes){}
+
+class GNodes(index: Int, topology: Topology, gnode_size: Int) extends Actor {
   var status: Boolean = true
   var count = 0
-  val max_count = 10
-  var started:Boolean = false
+  val max_count = 5
 
-  def act(){
+  def act() {
     loop {
-      react{
+      react {
         case Rumour => {
           count = count + 1
-          println("Count of "+ this.index + " = "+ count)
-          //for (i <- 0 to topology.deactive_nodes.size-1)
-            //print(topology.deactive_nodes(i) + ",")
-          if (topology.deactive_nodes.size == gnode_size){
-            println("All nodes have received 10 each !")
-            System.exit(0)
-          }
-          else if (count < max_count)
+          println("topology.deactive_nodes.size : "+ topology.deactive_nodes.size)
+          if (count < max_count)
             self ! TransmitData
-          else{
-            if(status)
-              topology.increment_status
+          else {
+            if (status)
+              topology.increment_status(gnode_size)
             status = false
           }
         }
 
         case TransmitData => {
-          if (count < max_count){
-            topology.get_random_neighbour ! Rumour
+          if (count < max_count) {
+            if (topology.isInstanceOf[FullTopology])
+              topology.get_random_neighbour ! Rumour
+            else if (topology.isInstanceOf[LineTopology])
+              topology.get_random_neighbour(index) ! Rumour
+            else if (topology.isInstanceOf[TwoDTopology])
+              topology.get_random_neighbour(index) ! Rumour
             Thread.sleep(100)
             self ! TransmitData
           }
+        }
+      }
+    }
+  }
+}
 
+
+class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) extends Actor {
+  var status: Boolean = true
+  var count = 0
+  val max_count = 5
+  var neighbours:Array[Actor] = Array()
+  def act() {
+    if (topology.isInstanceOf[TwoDTopology])
+    neighbours = topology.get_neighbours(index)
+    else if (topology.isInstanceOf[TwoDImpTopology])
+      neighbours = topology.get_imperfect_neighbours(index)
+    loop {
+      react {
+        case Rumour => {
+          count = count + 1
+          println("topology.deactive_nodes.size : "+ topology.deactive_nodes.size)
+          if (count < max_count)
+            self ! TransmitData
+          else {
+            if (status)
+              topology.increment_status(gnode_size)
+            status = false
+          }
         }
 
+        case TransmitData => {
+          if (count < max_count) {
+            get_random_neighbour() ! Rumour
+            Thread.sleep(100)
+            self ! TransmitData
+          }
+        }
       }
     }
   }
 
+  def get_random_neighbour():Actor = {
+    neighbours(new Random().nextInt(10) % neighbours.size)
+  }
 }
-
-
-
-
