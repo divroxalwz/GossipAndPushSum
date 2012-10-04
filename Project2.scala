@@ -12,9 +12,10 @@ import scala.Array._
  * Time: 1:05 AM
  * To change this template use File | Settings | File Templates.
  */
+
 case object Rumour
 case object TransmitData
-case class PushSum(s: Int, w: Int)
+case class PushSum(s: Float, w: Float)
 case object TransmitPSData
 
 object Project2 {
@@ -327,8 +328,8 @@ class GNodes(index: Int, topology: Topology, gnode_size: Int) extends Actor {
   var status: Boolean = true
   var count = 0
   val max_count = 5
-  var s = 0
-  var w = 1
+  var s: Float = 0
+  var w: Float = 1
   var is_pnode = false
   var last_received: Array[BigDecimal] = Array()
 
@@ -358,7 +359,7 @@ class GNodes(index: Int, topology: Topology, gnode_size: Int) extends Actor {
           }
         }
 
-        case PushSum(rs: Int, rw: Int) => {
+        case PushSum(rs: Float, rw: Float) => {
           s += rs
           w += rw
           if (w == 0)
@@ -395,8 +396,8 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
   var count = 0
   val max_count = 5
   var neighbours:Array[Actor] = Array()
-  var s = 0
-  var w = 1
+  var s:Float = 0
+  var w:Float = 1
   var is_pnode = false
   var last_received: Array[BigDecimal] = Array()
 
@@ -406,7 +407,8 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
       neighbours = topology.get_neighbours(index)
     else if (topology.isInstanceOf[TwoDImpTopology])
       neighbours = topology.get_imperfect_neighbours(index)
-
+    for (act <- neighbours)
+      println(act)
     loop {
       react {
         case Rumour => {
@@ -429,9 +431,12 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
           }
         }
 
-        case PushSum(rs: Int, rw: Int) => {
+        case PushSum(rs: Float, rw: Float) => {
+          println("B4 s and w"+ s + " "+ w)
+          println("B4 rs and rw"+ rs + " "+ rw)
           s += rs
           w += rw
+          println("After s and w"+ s + " "+ w)
           if (w == 0)
             last_received :+= BigDecimal.apply(0)
           else
@@ -446,9 +451,11 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
         }
 
         case TransmitPSData => {
-          get_random_neighbour() ! PushSum(s/2, w/2)
+          var act = get_random_neighbour()
+          act ! PushSum(s/2, w/2)
           s = s/2
           w = w/2
+          println("s and w "+ s + " "+ w)
           Thread.sleep(100)
           self ! TransmitPSData
         }
@@ -457,45 +464,8 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
   }
 
   def get_random_neighbour():Actor = {
-    neighbours(new Random().nextInt(10) % neighbours.size)
+    var i:Int = new Random().nextInt(10) % neighbours.size
+    neighbours(i)
   }
 }
 
-class PNodes(index: Int, topology: Topology, pnode_size: Int) extends Actor {
-  var status: Boolean = true
-  var count = 0
-  val max_count = 5
-  var s:Int = 0
-  var w:Int = 1
-
-  def act() {
-    loop {
-      react {
-        case Rumour => {
-          count = count + 1
-          println("topology.deactive_nodes.size : "+ topology.deactive_nodes.size)
-          if (count < max_count)
-            self ! TransmitData
-          else {
-            if (status)
-              topology.increment_status(pnode_size)
-            status = false
-          }
-        }
-
-        case TransmitData => {
-          if (count < max_count) {
-            if (topology.isInstanceOf[FullTopology])
-              topology.get_random_neighbour ! Rumour
-            else if (topology.isInstanceOf[LineTopology])
-              topology.get_random_neighbour(index) ! Rumour
-            else if (topology.isInstanceOf[TwoDTopology])
-              topology.get_random_neighbour(index) ! Rumour
-            Thread.sleep(100)
-            self ! TransmitData
-          }
-        }
-      }
-    }
-  }
-}
