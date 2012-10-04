@@ -15,6 +15,7 @@ import scala.Array._
 case object Rumour
 case object TransmitData
 case class PushSum(s: Int, w: Int)
+case object TransmitPSData
 
 object Project2 {
 
@@ -60,14 +61,20 @@ object Project2 {
 
       case "2D" | "2d" => {
         var twod_topology = new TwoDTopology(num_nodes)
-        twod_topology.initiate_nodes()
-        twod_topology.g_nodes(0)(0) ! Rumour
+        twod_topology.initiate_nodes(is_pnode)
+        if (is_pnode)
+          twod_topology.g_nodes(0)(0) ! PushSum(0,0)
+        else
+          twod_topology.g_nodes(0)(0) ! Rumour
       }
 
       case "2DImp" | "2dimp" | "2Dimp" => {
         var twod_topology = new TwoDImpTopology(num_nodes)
-        twod_topology.initiate_nodes()
-        twod_topology.g_nodes(0)(0) ! Rumour
+        twod_topology.initiate_nodes(is_pnode)
+        if (is_pnode)
+          twod_topology.g_nodes(0)(0) ! PushSum(0,0)
+        else
+          twod_topology.g_nodes(0)(0) ! Rumour
       }
     }
   }
@@ -86,10 +93,14 @@ abstract class Topology(num_nodes: Int) {
   }
 
   def should_exit(sw_array:Array[BigDecimal]):Boolean = {
-    if(sw_array(2)-sw_array(0) <= e-10)
+    if(sw_array(sw_array.size - 3)-sw_array(sw_array.size - 1) <= Math.pow(10,-10))
       return true
     else
       return false
+  }
+
+  def change_status{
+
   }
 
   def get_random_neighbour(): Actor
@@ -190,12 +201,18 @@ class TwoDTopology(num_nodes: Int) extends Topology(num_nodes){
   var g_nodes = ofDim[TwoDGNodes](use_val,use_val)
   var neighbour_indices: Array[Tuple2[Int, Int]] = Array()
 
-  def initiate_nodes() {
+  def initiate_nodes(is_pnode: Boolean) {
     var index:Tuple2[Int,Int] = (0,0)
+    var node_count = 0
     for (i <- 0 to use_val - 1) {
       for (j<- 0 to use_val - 1){
         index = (i,j)
         g_nodes(i)(j) = new TwoDGNodes(index, this, (use_val*use_val))
+        if (is_pnode){
+          g_nodes(i)(j).is_pnode = is_pnode
+          g_nodes(i)(j).s = node_count
+          node_count = node_count + 1
+        }
         g_nodes(i)(j).start()
       }
     }
@@ -313,7 +330,7 @@ class GNodes(index: Int, topology: Topology, gnode_size: Int) extends Actor {
   var s = 0
   var w = 1
   var is_pnode = false
-  var last_three_received: Array[BigDecimal] = Array()
+  var last_received: Array[BigDecimal] = Array()
 
   def act() {
     loop {
@@ -344,9 +361,17 @@ class GNodes(index: Int, topology: Topology, gnode_size: Int) extends Actor {
         case PushSum(rs: Int, rw: Int) => {
           s += rs
           w += rw
+          if (w == 0)
+            last_received :+= BigDecimal.apply(0)
+          else
+            last_received :+= BigDecimal.apply(s/w)
 
-          topology.should_exit(last_three_received)
-          self ! TransmitPSData
+          if (last_received.size >= 3 && topology.should_exit(last_received)){
+            topology.increment_status(gnode_size)
+            status = false
+          }
+          else
+            self ! TransmitPSData
         }
 
         case TransmitPSData => {
@@ -370,6 +395,11 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
   var count = 0
   val max_count = 5
   var neighbours:Array[Actor] = Array()
+  var s = 0
+  var w = 1
+  var is_pnode = false
+  var last_received: Array[BigDecimal] = Array()
+
   def act() {
 
     if (topology.isInstanceOf[TwoDTopology])
@@ -397,6 +427,30 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
             Thread.sleep(100)
             self ! TransmitData
           }
+        }
+
+        case PushSum(rs: Int, rw: Int) => {
+          s += rs
+          w += rw
+          if (w == 0)
+            last_received :+= BigDecimal.apply(0)
+          else
+            last_received :+= BigDecimal.apply(s/w)
+
+          if (last_received.size >= 3 && topology.should_exit(last_received)){
+            topology.increment_status(gnode_size)
+            status = false
+          }
+          else
+            self ! TransmitPSData
+        }
+
+        case TransmitPSData => {
+          get_random_neighbour() ! PushSum(s/2, w/2)
+          s = s/2
+          w = w/2
+          Thread.sleep(100)
+          self ! TransmitPSData
         }
       }
     }
