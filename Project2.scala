@@ -17,10 +17,16 @@ case object TransmitData
 case class PushSum(s: Int, w: Int)
 case object TransmitPSData
 
+object ConvergenceTime{
+  var start_time:Long = 0
+  var end_time:Long = 0
+}
+
 object Project2 {
 
   var num_nodes = 0
   var topology, algorithm = ""
+  var failure:Boolean = false
 
   def main(args: Array[String]) {
     collect_input
@@ -34,6 +40,8 @@ object Project2 {
     topology = readLine()
     println("Enter the Algorithm :")
     algorithm = readLine();
+    println("Do you want to check failure ? (Y/N)")
+    failure = readBoolean()
   }
 
   def start_process() {
@@ -43,7 +51,8 @@ object Project2 {
     topology match {
       case "FULL" | "full" | "Full" => {
         var full_topology = new FullTopology(num_nodes)
-        full_topology.initiate_nodes(is_pnode)
+        full_topology.initiate_nodes(is_pnode,failure)
+        ConvergenceTime.start_time = System.currentTimeMillis()
         if(is_pnode)
           full_topology.g_nodes(0) ! PushSum(0,0)
         else
@@ -52,7 +61,8 @@ object Project2 {
 
       case "line" | "LINE" | "Line" => {
         var line_topology = new LineTopology(num_nodes)
-        line_topology.initiate_nodes(is_pnode)
+        line_topology.initiate_nodes(is_pnode,failure)
+        ConvergenceTime.start_time = System.currentTimeMillis()
         if(is_pnode)
           line_topology.g_nodes(0) ! PushSum(0,0)
         else
@@ -61,7 +71,8 @@ object Project2 {
 
       case "2D" | "2d" => {
         var twod_topology = new TwoDTopology(num_nodes)
-        twod_topology.initiate_nodes(is_pnode)
+        twod_topology.initiate_nodes(is_pnode,failure)
+        ConvergenceTime.start_time = System.currentTimeMillis()
         if (is_pnode)
           twod_topology.g_nodes(0)(0) ! PushSum(0,0)
         else
@@ -70,7 +81,8 @@ object Project2 {
 
       case "2DImp" | "2dimp" | "2Dimp" => {
         var twod_topology = new TwoDImpTopology(num_nodes)
-        twod_topology.initiate_nodes(is_pnode)
+        twod_topology.initiate_nodes(is_pnode,failure)
+        ConvergenceTime.start_time = System.currentTimeMillis()
         if (is_pnode)
           twod_topology.g_nodes(0)(0) ! PushSum(0,0)
         else
@@ -87,9 +99,16 @@ abstract class Topology(num_nodes: Int) {
     deactive_nodes :+= 1
     println("Incrementing status and deactivating : " + deactive_nodes)
     if (deactive_nodes.size == size) {
-      println("All nodes have received 10 each !")
-      System.exit(0)
+      println("All nodes have converged !")
+      exit_process()
     }
+  }
+
+  def exit_process(){
+    ConvergenceTime.end_time = System.currentTimeMillis()
+    var time_diff = ConvergenceTime.end_time - ConvergenceTime.start_time
+    println("Convergence Time = " + time_diff)
+    System.exit(0)
   }
 
   def should_exit(sw_array:Array[BigDecimal]):Boolean = {
@@ -116,23 +135,32 @@ class FullTopology(num_nodes: Int) extends Topology(num_nodes) {
   var g_nodes: Array[GNodes] = Array()
   val rand = new Random()
 
-  def initiate_nodes(is_pnode: Boolean) {
+  def initiate_nodes(is_pnode: Boolean,failure: Boolean) {
     for (i <- 0 to num_nodes - 1) {
       g_nodes :+= new GNodes(i, this, num_nodes)
       if (is_pnode){
         g_nodes(i).is_pnode = is_pnode
         g_nodes(i).s = i
       }
+      if (failure){
+        g_nodes(rand.nextInt(g_nodes.size)).status = false
+      }
       g_nodes(i).start()
     }
   }
 
   override def get_random_neighbour(): Actor = {
-    g_nodes(rand.nextInt(g_nodes.size))
+    var random_number:Int = 0
+    random_number = rand.nextInt(g_nodes.size)
+    g_nodes(random_number)
   }
 
   override def get_random_neighbour(index: Int): Actor = {
-    g_nodes(rand.nextInt(g_nodes.size))
+    var random_number:Int = 0
+    do{
+      random_number = rand.nextInt(g_nodes.size)
+    }while(random_number == index)
+    g_nodes(random_number)
   }
 
   override def get_neighbours(index: Tuple2[Int, Int]):Array[Actor] = {
@@ -146,13 +174,16 @@ class FullTopology(num_nodes: Int) extends Topology(num_nodes) {
 
 class LineTopology(num_nodes: Int) extends Topology(num_nodes) {
   var g_nodes: Array[GNodes] = Array()
-
-  def initiate_nodes(is_pnode: Boolean) {
+  var rand = new Random()
+  def initiate_nodes(is_pnode: Boolean,failure: Boolean) {
     for (i <- 0 to num_nodes - 1) {
       g_nodes :+= new GNodes(i, this, num_nodes)
       if (is_pnode){
         g_nodes(i).is_pnode = is_pnode
         g_nodes(i).s = i
+      }
+      if (failure){
+        g_nodes(rand.nextInt(g_nodes.size)).status = false
       }
       g_nodes(i).start()
     }
@@ -172,24 +203,14 @@ class LineTopology(num_nodes: Int) extends Topology(num_nodes) {
 
   override def get_random_neighbour(index: Int): Actor = {
     index match {
-      case 0 => {
-        (new Random().nextInt(10) % 2) match{
-          case 0 => return g_nodes(1)
-          case 1 => return g_nodes(0)
-        }
-      }
+      case 0 => return g_nodes(1)
 
       case other:Int => {
         if (other == g_nodes.size - 1)
-          (new Random().nextInt(10) % 2) match{
-            case 0 => return g_nodes(other)
-            case 1 => return g_nodes(other - 1)
-          }
-
-        (new Random().nextInt(10) % 3) match{
-          case 0 => return g_nodes(other)
-          case 1 => return g_nodes(other - 1)
-          case 2 => return g_nodes(other + 1)
+           return g_nodes(other - 1)
+        (new Random().nextInt(10) % 2) match{
+          case 0 => return g_nodes(other - 1)
+          case 1 => return g_nodes(other + 1)
         }
       }
     }
@@ -200,8 +221,9 @@ class TwoDTopology(num_nodes: Int) extends Topology(num_nodes){
   var use_val:Int = find_dimension(num_nodes)
   var g_nodes = ofDim[TwoDGNodes](use_val,use_val)
   var neighbour_indices: Array[Tuple2[Int, Int]] = Array()
+  var rand = new Random()
 
-  def initiate_nodes(is_pnode: Boolean) {
+  def initiate_nodes(is_pnode: Boolean,failure: Boolean) {
     var index:Tuple2[Int,Int] = (0,0)
     var node_count = 0
     for (i <- 0 to use_val - 1) {
@@ -215,6 +237,12 @@ class TwoDTopology(num_nodes: Int) extends Topology(num_nodes){
         }
         g_nodes(i)(j).start()
       }
+    }
+    if (failure){
+      var x = rand.nextInt(use_val)
+      var y = rand.nextInt(use_val)
+      println("X and Y values =" + x + ", " + y)
+      (g_nodes(x)(y)).status = false
     }
   }
 
@@ -331,11 +359,13 @@ class GNodes(index: Int, topology: Topology, gnode_size: Int) extends Actor {
   var w = 1
   var is_pnode = false
   var last_received: Array[BigDecimal] = Array()
+  var transmit_count = 0
 
   def act() {
     loop {
       react {
         case Rumour => {
+          transmit_count = 0
           count = count + 1
           println("topology.deactive_nodes.size : "+ topology.deactive_nodes.size)
           if (count < max_count)
@@ -350,15 +380,23 @@ class GNodes(index: Int, topology: Topology, gnode_size: Int) extends Actor {
         case TransmitData => {
           if (count < max_count) {
             if (topology.isInstanceOf[FullTopology])
-              topology.get_random_neighbour ! Rumour
+              topology.get_random_neighbour(index) ! Rumour
             else if (topology.isInstanceOf[LineTopology])
               topology.get_random_neighbour(index) ! Rumour
             Thread.sleep(100)
+            if (transmit_count >= (gnode_size+max_count)*2){
+              println("Force Exit due to non convergence")
+              println("Nodes converged = "+ topology.deactive_nodes.size)
+              topology.exit_process()
+            }
+
+            transmit_count +=1
             self ! TransmitData
           }
         }
 
         case PushSum(rs: Int, rw: Int) => {
+          transmit_count = 0
           s += rs
           w += rw
           if (w == 0)
@@ -366,23 +404,34 @@ class GNodes(index: Int, topology: Topology, gnode_size: Int) extends Actor {
           else
             last_received :+= BigDecimal.apply(s/w)
 
-          if (last_received.size >= 3 && topology.should_exit(last_received)){
-            topology.increment_status(gnode_size)
-            status = false
+          if (status){
+            if (last_received.size >= 3 && topology.should_exit(last_received)){
+              topology.increment_status(gnode_size)
+              status = false
+            }
+            else{
+              self ! TransmitPSData
+            }
           }
-          else
-            self ! TransmitPSData
         }
 
         case TransmitPSData => {
-          if (topology.isInstanceOf[FullTopology])
-            topology.get_random_neighbour ! PushSum(s/2, w/2)
-          else if (topology.isInstanceOf[LineTopology])
-            topology.get_random_neighbour(index) ! PushSum(s/2, w/2)
-          s = s/2
-          w = w/2
-          Thread.sleep(100)
-          self ! TransmitPSData
+          if (status){
+            if (topology.isInstanceOf[FullTopology])
+              topology.get_random_neighbour(index) ! PushSum(s/2, w/2)
+            else if (topology.isInstanceOf[LineTopology])
+              topology.get_random_neighbour(index) ! PushSum(s/2, w/2)
+            if (transmit_count >= (gnode_size+max_count)*2){
+              println("Force Exit due to non convergence")
+              println("Nodes converged = "+ topology.deactive_nodes.size)
+              topology.exit_process()
+            }
+            transmit_count += 1
+            s = s/2
+            w = w/2
+            Thread.sleep(100)
+            self ! TransmitPSData
+          }
         }
       }
     }
@@ -399,6 +448,7 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
   var w = 1
   var is_pnode = false
   var last_received: Array[BigDecimal] = Array()
+  var transmit_count = 0
 
   def act() {
 
@@ -410,8 +460,9 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
     loop {
       react {
         case Rumour => {
-          count = count + 1
+          transmit_count = 0
           println("topology.deactive_nodes.size : "+ topology.deactive_nodes.size)
+          count = count + 1
           if (count < max_count)
             self ! TransmitData
           else {
@@ -425,11 +476,19 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
           if (count < max_count) {
             get_random_neighbour() ! Rumour
             Thread.sleep(100)
+            if (transmit_count >= (gnode_size+max_count)*2){
+              println("Force Exit due to non convergence")
+              println("Nodes converged = "+ topology.deactive_nodes.size)
+              topology.exit_process()
+            }
+
+            transmit_count +=1
             self ! TransmitData
           }
         }
 
         case PushSum(rs: Int, rw: Int) => {
+          transmit_count = 0
           s += rs
           w += rw
           if (w == 0)
@@ -437,20 +496,30 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
           else
             last_received :+= BigDecimal.apply(s/w)
 
-          if (last_received.size >= 3 && topology.should_exit(last_received)){
-            topology.increment_status(gnode_size)
-            status = false
+          if (status){
+            if (last_received.size >= 3 && topology.should_exit(last_received)){
+              topology.increment_status(gnode_size)
+              status = false
+            }
+            else
+              self ! TransmitPSData
           }
-          else
-            self ! TransmitPSData
         }
 
         case TransmitPSData => {
-          get_random_neighbour() ! PushSum(s/2, w/2)
-          s = s/2
-          w = w/2
-          Thread.sleep(100)
-          self ! TransmitPSData
+          if(status){
+            get_random_neighbour() ! PushSum(s/2, w/2)
+            if (transmit_count >= (gnode_size+max_count)){
+              println("Force Exit due to non convergence")
+              println("Nodes converged = "+ topology.deactive_nodes.size)
+              topology.exit_process()
+            }
+            transmit_count += 1
+            s = s/2
+            w = w/2
+            Thread.sleep(100)
+            self ! TransmitPSData
+          }
         }
       }
     }
@@ -458,44 +527,5 @@ class TwoDGNodes(index: Tuple2[Int, Int], topology: Topology, gnode_size: Int) e
 
   def get_random_neighbour():Actor = {
     neighbours(new Random().nextInt(10) % neighbours.size)
-  }
-}
-
-class PNodes(index: Int, topology: Topology, pnode_size: Int) extends Actor {
-  var status: Boolean = true
-  var count = 0
-  val max_count = 5
-  var s:Int = 0
-  var w:Int = 1
-
-  def act() {
-    loop {
-      react {
-        case Rumour => {
-          count = count + 1
-          println("topology.deactive_nodes.size : "+ topology.deactive_nodes.size)
-          if (count < max_count)
-            self ! TransmitData
-          else {
-            if (status)
-              topology.increment_status(pnode_size)
-            status = false
-          }
-        }
-
-        case TransmitData => {
-          if (count < max_count) {
-            if (topology.isInstanceOf[FullTopology])
-              topology.get_random_neighbour ! Rumour
-            else if (topology.isInstanceOf[LineTopology])
-              topology.get_random_neighbour(index) ! Rumour
-            else if (topology.isInstanceOf[TwoDTopology])
-              topology.get_random_neighbour(index) ! Rumour
-            Thread.sleep(100)
-            self ! TransmitData
-          }
-        }
-      }
-    }
   }
 }
